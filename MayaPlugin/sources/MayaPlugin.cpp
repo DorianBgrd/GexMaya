@@ -870,9 +870,6 @@ MStatus initializePlugin(MObject obj)
         return status;
     }
 
-    Gex::PluginLoader::LoadPlugin("D:\\WORK\\GEX_MAYA\\GexMaya\\cmake-build-release\\MayaPlugin\\MayaPlugin\\Gex-plugins\\MathPlugin.dll");
-
-
     return status;
 }
 
