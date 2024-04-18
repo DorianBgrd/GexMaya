@@ -12,10 +12,6 @@ GexMaya::GraphWindow::GraphWindow(Gex::CompoundNode* c,
     Gex::Ui::NodeItem::SetDefaultFooter(10);
     Gex::Ui::NodeItem::SetDefaultTitleOffset(30);
 
-    QFile styleFile("D:\\WORK\\GEX\\Gex\\ui\\soft\\resources\\stylesheet.css");
-    styleFile.open(QFile::ReadOnly);
-    QString style = styleFile.readAll();
-
     setStyleSheet(style);
 
     cmp = c;
