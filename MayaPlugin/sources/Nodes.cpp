@@ -1,8 +1,12 @@
 #include "MayaPlugin/include/Nodes.h"
 
+#include "MayaPlugin/include/Types.h"
+
 #include "maya/MDataBlock.h"
 #include "maya/MMatrix.h"
 #include "maya/MWeight.h"
+
+#include "maya/MGlobal.h"
 
 
 void GexMaya::DeformerGraph::InitAttributes()
@@ -12,10 +16,12 @@ void GexMaya::DeformerGraph::InitAttributes()
             Gex::AttrType::Input);
     db->SetInternal(true);
 
-    auto* it = CreateAttribute<MItGeometry*>(
+    size_t h = typeid(MItGeometryWrapper).hash_code();
+    auto* it = CreateAttribute<MItGeometryWrapper>(
             "GeomIt", Gex::AttrValueType::Single,
             Gex::AttrType::Input);
     it->SetInternal(true);
+    size_t h1 = it->TypeHash();
 
     auto* mx = CreateAttribute<MMatrix>(
             "Matrix", Gex::AttrValueType::Single,
@@ -39,8 +45,8 @@ bool GexMaya::DeformerGraph::Evaluate(Gex::NodeAttributeData &ctx,
 
 void GexMaya::GeomIter::InitAttributes()
 {
-    CreateAttribute<MItGeometry*>("ItGeom", Gex::AttrValueType::Single,
-                                  Gex::AttrType::Input);
+    CreateAttribute<MItGeometryWrapper>("ItGeom", Gex::AttrValueType::Single,
+                                        Gex::AttrType::Input);
 
     TSys::Enum space;
     space.AddValue(0, "Object");
@@ -51,12 +57,12 @@ void GexMaya::GeomIter::InitAttributes()
     p->SetInternal(true);
     p->SetExternal(false);
 
-    auto* s = CreateAttributeFromValue("Space", std::make_any<TSys::Enum>(space),
-            Gex::AttrValueType::Single, Gex::AttrType::Input);
-    s->SetInternal(true);
-    s->SetExternal(false);
+//    auto* s = CreateAttributeFromValue("Space", std::make_any<TSys::Enum>(space),
+//            Gex::AttrValueType::Single, Gex::AttrType::Input);
+//    s->SetInternal(true);
+//    s->SetExternal(false);
 
-    auto* n = CreateAttribute<MPoint>("Normale", Gex::AttrValueType::Single,
+    auto* n = CreateAttribute<MPoint>("Normal", Gex::AttrValueType::Single,
                                       Gex::AttrType::Input);
     n->SetInternal(true);
     n->SetExternal(false);
@@ -74,7 +80,7 @@ void GexMaya::GeomIter::InitAttributes()
     auto* op = CreateAttribute<MPoint>("OutPosition",  Gex::AttrValueType::Single,
                                             Gex::AttrType::Output);
     op->SetInternal(true);
-    m->SetExternal(false);
+    op->SetExternal(false);
 }
 
 
@@ -89,23 +95,16 @@ bool GexMaya::GeomIter::Evaluate(Gex::NodeAttributeData &ctx,
                                        Gex::GraphContext &graphContext,
                                        Gex::NodeProfiler &profiler)
 {
-    auto iter = ctx.GetAttribute("ItGeom").GetValue<MItGeometry*>();
+    auto iter = ctx.GetAttribute("ItGeom").GetValue<MItGeometryWrapper>();
 
     Gex::NodeEvaluator evaluator(schelNodes, graphContext, profiler.GetProfiler());
-    while (!iter->isDone())
+    for (;!iter.Iter()->isDone();iter.Iter()->next())
     {
-        MPoint pos;
-        auto space = ctx.GetAttribute("Space").GetValue<TSys::Enum>();
+        evaluator.Reset();
 
-        auto mspace = MSpace::kObject;
-        if (space.CurrentIndex())
-        {
-            mspace = MSpace::kWorld;
-        }
-
-        ctx.GetAttribute("Position").SetValue(iter->position(mspace));
-        ctx.GetAttribute("Weight").SetValue(iter->weight().influence());
-        ctx.GetAttribute("Normale").SetValue(iter->normal(mspace));
+        ctx.GetAttribute("Position").SetValue<MPoint>(iter.Iter()->position());
+        ctx.GetAttribute("Weight").SetValue<float>(iter.Iter()->weight().influence());
+        ctx.GetAttribute("Normal").SetValue<MVector>(iter.Iter()->normal());
 
         evaluator.Run();
 
@@ -116,10 +115,9 @@ bool GexMaya::GeomIter::Evaluate(Gex::NodeAttributeData &ctx,
 
         PullInternalOutputs();
 
-        MPoint op = ctx.GetAttribute("OutPosition").GetValue<MPoint>();
-        iter->setPosition(op, mspace);
+        auto op = ctx.GetAttribute("OutPosition").GetValue<MPoint>();
 
-        iter->next();
+        iter.Iter()->setPosition(op);
     }
 
     return true;

@@ -25,7 +25,7 @@ namespace GexMaya
                                   rapidjson::Value& value)
         const override
         {
-            return {};
+            return InitValue();
         };
 
 
@@ -266,8 +266,41 @@ namespace GexMaya
     };
 
 
+    class MItGeometryWrapper
+    {
+        MItGeometry* iter;
+    public:
+        MItGeometryWrapper()
+        {
+            iter = nullptr;
+        }
+
+        MItGeometryWrapper(MItGeometry* it)
+        {
+            iter = it;
+        }
+
+        MItGeometryWrapper(const MItGeometryWrapper& other)
+        {
+            iter = other.Iter();
+        }
+
+        MItGeometry* Iter() const
+        {
+            return iter;
+        }
+
+        void SetIter(MItGeometry* geom)
+        {
+            iter = geom;
+        }
+    };
+
+
     struct MItGeometryHandler: public ReadOnlyHandler
     {
+        std::any InitValue() const override;
+
         std::any CopyValue(std::any source) const override;
 
         size_t Hash() const override;

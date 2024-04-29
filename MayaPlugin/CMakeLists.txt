@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(MayaPlugin)
+project(GexMaya)
 
 
 add_library(
-        MayaPlugin
+        GexMaya
         SHARED
         include/MayaPlugin.h
         sources/MayaPlugin.cpp
@@ -22,7 +22,7 @@ add_library(
 
 
 target_include_directories(
-        MayaPlugin
+        GexMaya
         PUBLIC
         ${GEX_INCLUDE_DIRS}
         ${GEX_INCLUDE_DIRS}/Gex
@@ -46,7 +46,7 @@ target_include_directories(
 
 
 target_link_directories(
-        MayaPlugin
+        GexMaya
         PUBLIC
 
         ${MAYA_LIBRARY_DIRS}
@@ -64,7 +64,7 @@ target_link_directories(
 
 
 target_link_libraries(
-        MayaPlugin
+        GexMaya
         PUBLIC
 
         Foundation
@@ -74,8 +74,8 @@ target_link_libraries(
 
         Gex
         Tsys
-#        UiTSys
-#        UiRes
+        UiTSys
+        UiRes
         Gex_ui
 
         Qt6::Widgets
@@ -87,32 +87,79 @@ target_link_libraries(
 )
 
 
+#add_custom_command(
+#        TARGET
+#        GexMaya
+#
+#        POST_BUILD
+#        COMMAND
+#        python $ENV{BUILD_UTILS_DIR}/BuildUtils/build_package.py --directory ${CMAKE_CURRENT_BINARY_DIR}
+#        --name GexMaya
+#
+#        --search_directories ${MAYA_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS} ${Python_LIBRARY_DIRS}
+#        ${GEX_LIBRARY_DIRS} ${TSYS_LIBRARY_DIR} ${UI_TSYS_LIBRARY_DIR} ${UI_RES_LIBRARY_DIR}
+#        ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${TSYS_LIBRARY_DIR} ${GEX_UI_LIBRARY_DIRS}
+#        ${QT_AWESOME_LIBRARY_DIR}
+#
+#        --dependencies Gex.dll Tsys.dll MayaPlugin.dll Gex_ui.dll UiTSys.dll UiRes.dll QtAwesome.dll
+#
+#        --library ${CMAKE_BINARY_DIR}/GexMaya.dll
+#)
+
+
 add_custom_command(
         TARGET
-        MayaPlugin
+        GexMaya
 
         POST_BUILD
         COMMAND
-        python $ENV{BUILD_UTILS_DIR}/BuildUtils/build_package.py --directory ${CMAKE_CURRENT_BINARY_DIR}
-        --name MayaPlugin
+        python ${CMAKE_SOURCE_DIR}/copy.py ${CMAKE_BINARY_DIR}/GexMaya.dll
+        ${CMAKE_CURRENT_BINARY_DIR}/GexMaya.mll
+)
 
-        --search_directories ${MAYA_LIBRARY_DIRS} ${Boost_LIBRARY_DIRS} ${Python_LIBRARY_DIRS}
-        ${GEX_LIBRARY_DIRS} ${TSYS_LIBRARY_DIR} ${UI_TSYS_LIBRARY_DIR} ${UI_RES_LIBRARY_DIR}
-        ${CMAKE_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR} ${TSYS_LIBRARY_DIR} ${GEX_UI_LIBRARY_DIRS}
-        ${QT_AWESOME_LIBRARY_DIR}
 
-        --dependencies Gex.dll Tsys.dll MayaPlugin.dll Gex_ui.dll UiTSys.dll UiRes.dll QtAwesome.dll
+set(PACKAGED_ENV "{'GEX_RESOURCES_PATH':'resources'}")
 
-        --library ${CMAKE_BINARY_DIR}/MayaPlugin.dll
+add_custom_command(
+        TARGET
+        GexMaya
+
+        POST_BUILD
+        COMMAND
+        python ${CMAKE_SOURCE_DIR}/build/packageModule.py
+
+        --name GexMaya
+
+        --libraries ${GEX_LIBRARY_DIRS}/Gex.dll
+        ${TSYS_LIBRARY_DIR}/Tsys.dll
+        ${GEX_UI_LIBRARY_DIRS}/Gex_ui.dll
+        ${QT_AWESOME_LIBRARY_DIR}/QtAwesome.dll
+
+        --plugins ${CMAKE_CURRENT_BINARY_DIR}/GexMaya.mll
+
+        --custom-dir ${CMAKE_CURRENT_SOURCE_DIR}/resources
+
+        --description GexMaya@0.0@Module@env=${PACKAGED_ENV}
+
+        ${CMAKE_BINARY_DIR}/Module
 )
 
 
 add_custom_command(
         TARGET
-        MayaPlugin
+        GexMaya
 
         POST_BUILD
         COMMAND
-        python ${CMAKE_SOURCE_DIR}/copy.py ${CMAKE_BINARY_DIR}/MayaPlugin.dll
-        ${CMAKE_CURRENT_BINARY_DIR}/MayaPlugin/MayaPlugin.mll
+        python $ENV{BUILD_UTILS_DIR}/BuildUtils/dependencies.py
+        --depth 2
+        --search-directories ${GEX_LIBRARY_DIRS} ${TSYS_LIBRARY_DIR}
+        ${GEX_UI_LIBRARY_DIRS} ${QT_AWESOME_LIBRARY_DIR}
+        ${UI_TSYS_LIBRARY_DIR} ${UI_RES_LIBRARY_DIR}
+
+        --exclude-current
+
+        ${CMAKE_CURRENT_BINARY_DIR}/GexMaya.mll
+        ${CMAKE_BINARY_DIR}/Module/GexMaya/Module/libraries
+
 )

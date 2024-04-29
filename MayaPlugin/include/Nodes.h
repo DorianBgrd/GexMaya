@@ -139,20 +139,20 @@ namespace GexMaya
                       Gex::GraphContext &graphContext,
                       Gex::NodeProfiler &profiler) override
         {
-            T value;
 
-            T inputA = ctx.GetAttribute("InputA").GetValue<T>();
+            auto inputA = ctx.GetAttribute("InputA").GetValue<T>();
             auto inputB = ctx.GetAttribute("InputB").GetValue<double>();
 
             auto op = ctx.GetAttribute("Operation").GetValue<TSys::Enum>();
             unsigned int operation = op.CurrentIndex();
 
+            T value;
             if (operation == 0)
                 value = inputA * inputB;
             else
                 value = inputA / inputB;
 
-            return ctx.GetAttribute("Output").SetValue(value);
+            return ctx.GetAttribute("Output").SetValue<T>(value);
         }
     };
 

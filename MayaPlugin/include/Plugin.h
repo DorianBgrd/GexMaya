@@ -5,6 +5,8 @@
 namespace GexMaya
 {
     void LoadPlugin();
+
+    void LoadUiPlugin();
 }
 
 

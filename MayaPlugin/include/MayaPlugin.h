@@ -18,6 +18,7 @@
 #include "maya/MDGModifier.h"
 #include "maya/MObjectHandle.h"
 #include "maya/MPxDeformerNode.h"
+#include "maya/MNodeMessage.h"
 
 #include "api.h"
 
@@ -64,12 +65,12 @@ namespace GexMaya
     };
 
 
-    class GEX_MAYA ExtraAttrData: public MPxData
+    class GEX_MAYA GraphAttributesData: public MPxData
     {
         AttrTuple tuple;
 
     public:
-        ExtraAttrData();
+        GraphAttributesData();
 
         static MTypeId id;
 
@@ -88,6 +89,10 @@ namespace GexMaya
         MString name() const override;
 
         static void* create();
+
+        AttrTuple Data() const;
+
+        void SetData(AttrTuple data);
     };
 
 
@@ -97,17 +102,39 @@ namespace GexMaya
         AttrTuple inputs;
         AttrTuple outputs;
         MPxNode* mpxnode;
+        MString graphAttributeName;
+
+        Gex::Profiler profiler;
 
     public:
-        GexNode(MPxNode* node);
+        GexNode(MPxNode* node, const MString& graphAttributeName="graph");
+
+        Gex::CompoundNode* Graph() const;
 
         void AddCustomAttribute(Gex::Attribute*);
+
+        void RegisterCustomAttribute(Gex::Attribute* attribute,
+                                     MObjectHandle mayaAttr);
 
         void RemoveCustomAttribute(Gex::Attribute*);
 
         AttrTuple Inputs() const;
 
         AttrTuple Outputs() const;
+
+        Gex::Attribute* ToGexAttr(MObject attr) const;
+
+        bool IsGraphInput(MObject attr) const;
+
+        bool IsGraphOutput(MObject attr) const;
+
+        void PushInputs(Gex::CompoundNode* graph,
+                        MDataBlock& dataBlock);
+
+        void PullOutputs(Gex::CompoundNode* graph,
+                         MDataBlock& dataBlock);
+
+        Gex::Profiler GetProfiler() const;
     };
 
 
@@ -122,27 +149,13 @@ namespace GexMaya
 
         GexNetworkNode();
 
-        ~GexNetworkNode();
-
         void postConstructor() override;
-
-        Gex::CompoundNode* Graph() const;
-
-        void AddCustomAttribute(Gex::Attribute*);
-
-        void RemoveCustomAttribute(Gex::Attribute*);
 
         MStatus compute(const MPlug &plug, MDataBlock &dataBlock) override;
 
         static void *creator();
 
         static MStatus initialize();
-
-//        MStatus shouldSave(const MPlug &, bool &isSaving) override;
-
-        bool IsGraphInput(MObject attr) const;
-
-        bool IsGraphOutput(MObject attr) const;
 
         MStatus dependsOn(const MPlug& plug, const MPlug& other,
                           bool &depends) const override;
@@ -157,21 +170,17 @@ namespace GexMaya
     {
     public:
         static MObject graphAttr;
+        static MObject testAttr;
         static MTypeId id;
 
         GexDeformer();
 
+        void postConstructor() override;
+
         MStatus deform(MDataBlock &block, MItGeometry &iter,
                        const MMatrix &mat, unsigned int multiIndex);
 
-        void AddCustomAttribute(Gex::Attribute* at);
-
-        void RemoveCustomAttribute(Gex::Attribute* at);
-
-        Gex::CompoundNode* Graph() const;
-
         static void* create();
-
 
         static MStatus initialize();
     };

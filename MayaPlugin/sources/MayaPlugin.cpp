@@ -6,16 +6,23 @@
 #include "maya/MFnPluginData.h"
 #include "maya/MNodeMessage.h"
 #include "maya/MArgList.h"
+#include "maya/MFileIO.h"
 
 #include "MayaPlugin/include/GraphView.h"
 #include "MayaPlugin/include/Nodes.h"
+#include "MayaPlugin/include/Types.h"
 
 #include "MayaPlugin/include/Plugin.h"
+
+#include "Gex/ui/include/PluginLoader.h"
+
+#define GRAPH_ATTR "graph"
+#define GRAPH_ATTR_SHORT "grh"
 
 
 MTypeId GexMaya::GexNetworkNode::id = 0x7ffff;
 MTypeId GexMaya::GraphData::id = 0x7ffff + 8;
-MTypeId GexMaya::ExtraAttrData::id = 0x7ffff + 16;
+MTypeId GexMaya::GraphAttributesData::id = 0x7ffff + 16;
 MTypeId GexMaya::GexDeformer::id = 0x7ffff + 24;
 
 
@@ -61,6 +68,16 @@ MTypeId GexMaya::GraphData::typeId() const
 MStatus GexMaya::GraphData::readASCII(const MArgList &argList, unsigned int &endOfTheLastParsedElement)
 {
     MString str = argList.asString(endOfTheLastParsedElement++);
+
+    Gex::Feedback res;
+    Gex::Node* loaded = Gex::LoadGraphString(str.asUTF8(), &res);
+    if (!res)
+    {
+        MGlobal::displayError(res.message.c_str());
+        return MS::kFailure;
+    }
+
+    g.reset(Gex::CompoundNode::FromNode(loaded));
     return MS::kSuccess;
 }
 
@@ -105,87 +122,139 @@ void* GexMaya::GraphData::create()
 }
 
 
-GexMaya::ExtraAttrData::ExtraAttrData(): MPxData()
+GexMaya::GraphAttributesData::GraphAttributesData(): MPxData()
 {
 
 }
 
 
-MTypeId GexMaya::ExtraAttrData::typeId() const
+MTypeId GexMaya::GraphAttributesData::typeId() const
 {
     return id;
 }
 
 
-MStatus GexMaya::ExtraAttrData::readASCII(const MArgList &argList, unsigned int &endOfTheLastParsedElement)
+MStatus GexMaya::GraphAttributesData::readASCII(const MArgList &argList, unsigned int &endOfTheLastParsedElement)
+{
+    MString str = argList.asString(endOfTheLastParsedElement++);
+
+    MStringArray tokens;
+    str.split('@', tokens);
+
+    for (unsigned int i = 0; i < tokens.length(); i+=2)
+    {
+
+    }
+
+    return MS::kSuccess;
+}
+
+
+MStatus GexMaya::GraphAttributesData::readBinary(std::istream &in, unsigned int length)
 {
     return MS::kSuccess;
 }
 
 
-MStatus GexMaya::ExtraAttrData::readBinary(std::istream &in, unsigned int length)
+MStatus GexMaya::GraphAttributesData::writeASCII(std::ostream &out)
 {
+    MString allStrData;
+    for (auto data : tuple)
+    {
+        if (!allStrData.isEmpty())
+            allStrData += "@";
+
+        MString strData;
+
+        Gex::Attribute* attribute = data.first;
+        MObjectHandle mayaAttribute = data.second;
+
+        allStrData += MString(attribute->Longname().c_str()) + "@" +
+                MFnAttribute(mayaAttribute.object()).name();
+    }
+
+    out << "\"" << allStrData << "\"";
+
     return MS::kSuccess;
 }
 
 
-MStatus GexMaya::ExtraAttrData::writeASCII(std::ostream &out)
+MStatus GexMaya::GraphAttributesData::writeBinary(std::ostream &out)
 {
-    return MS::kSuccess;
+    return writeASCII(out);
 }
 
 
-MStatus GexMaya::ExtraAttrData::writeBinary(std::ostream &out)
-{
-    return MS::kSuccess;
-}
-
-
-void GexMaya::ExtraAttrData::copy(const MPxData& src)
+void GexMaya::GraphAttributesData::copy(const MPxData& src)
 {
     if (src.typeId() == typeId())
     {
-        auto other = static_cast<const ExtraAttrData*>(&src);
+        auto other = static_cast<const GraphAttributesData*>(&src);
         tuple = other->tuple;
     }
 }
 
 
-MString GexMaya::ExtraAttrData::name() const
+MString GexMaya::GraphAttributesData::name() const
 {
     return "Gex::ExtraAttrData";
 }
 
 
-void* GexMaya::ExtraAttrData::create()
+void* GexMaya::GraphAttributesData::create()
 {
-    return new ExtraAttrData();
+    return new GraphAttributesData();
 }
 
+
+GexMaya::AttrTuple GexMaya::GraphAttributesData::Data() const
+{
+    return tuple;
+}
+
+
+void GexMaya::GraphAttributesData::SetData(AttrTuple data)
+{
+    tuple = data;
+}
+
+
+// -------------------------------------------------
+// GEX CALLBACK ------------------------------------
+// -------------------------------------------------
 
 // -------------------------------------------------
 // GEX NODE ----------------------------------------
 // -------------------------------------------------
-GexMaya::GexNode::GexNode(MPxNode* src)
+GexMaya::GexNode::GexNode(MPxNode* src, const MString& attr)
 {
     mpxnode = src;
+    profiler = Gex::MakeProfiler();
+    graphAttributeName = attr;
 }
 
 
-void GexMaya::GexNode::AddCustomAttribute(Gex::Attribute* at)
+void GexMaya::GexNode::AddCustomAttribute(Gex::Attribute* attribute)
 {
     MObject mayaAttribute = MayaTypeRegistry::GetRegistry()->CreateAttribute(
-            at, mpxnode->thisMObject());
+            attribute, mpxnode->thisMObject());
     if (mayaAttribute.isNull())
         return;
 
-    if (at->IsInput())
+    RegisterCustomAttribute(attribute, mayaAttribute);
+}
+
+
+void GexMaya::GexNode::RegisterCustomAttribute(
+        Gex::Attribute* attribute, MObjectHandle mayaAttr)
+{
+    if (attribute->IsInput())
     {
-        inputs.emplace_back(at, MObjectHandle(mayaAttribute));
+        inputs.emplace_back(attribute, mayaAttr);
     }
     else
     {
-        outputs.emplace_back(at, MObjectHandle(mayaAttribute));
+        outputs.emplace_back(attribute, mayaAttr);
     }
 }
 
@@ -208,53 +277,100 @@ GexMaya::AttrTuple GexMaya::GexNode::Outputs() const
 }
 
 
-// -------------------------------------------------
-// GEX NETWORK NODE --------------------------------
-// -------------------------------------------------
-MObject GexMaya::GexNetworkNode::graphAttr;
-MObject GexMaya::GexNetworkNode::extraAttr;
-
-
-void AttributeChangeCallback(GexMaya::GexNetworkNode* node, Gex::Attribute* attribute,
-                             const Gex::AttributeChange& change)
+void GexMaya::GexNode::PushInputs(Gex::CompoundNode* graph, MDataBlock& dataBlock)
 {
+    MStatus success;
+    MFnDependencyNode node(mpxnode->thisMObject());
 
-}
-
-
-GexMaya::GexNetworkNode::GexNetworkNode(): GexNode(this)
-{
-//    auto* cmp = Gex::NodeFactory::GetFactory()->CreateNode("CompoundNode", "Graph");
-//    graph = Gex::CompoundNode::FromNode(cmp);
-}
-
-
-GexMaya::GexNetworkNode::~GexNetworkNode()
-{
-//    delete graph;
-}
-
-
-void GexMaya::GexNetworkNode::postConstructor()
-{
-    MFnDependencyNode node(thisMObject());
-
-    MGlobal::displayInfo("postConstructor()");
-    for (int i = 0; i < node.attributeCount(); i++)
+    for (auto input : graph->InternalAttributes())
     {
-        auto attr = node.attribute(i);
-        auto plug = node.findPlug(attr, true).name();
+        if (!input->IsInput())
+            continue;
 
-        MGlobal::displayInfo(" > " + plug);
+        MPlug mayaInput = node.findPlug(input->Name().c_str(), true);
+        if (mayaInput.isNull())
+        {
+            continue;
+        }
+
+        MStatus inSuccess;
+        auto inputData = dataBlock.inputValue(
+                mayaInput.attribute(),
+                &inSuccess);
+
+        CHECK_MSTATUS(inSuccess);
+
+        MayaTypeRegistry::GetRegistry()->ToAttribute(
+                inputData, input);
     }
 }
 
 
-Gex::CompoundNode* GexMaya::GexNetworkNode::Graph() const
+void GexMaya::GexNode::PullOutputs(Gex::CompoundNode* graph, MDataBlock& dataBlock)
 {
     MStatus success;
-    MPlug plug = MFnDependencyNode(thisMObject()).findPlug(
-            graphAttr, true, &success);
+    MFnDependencyNode node(mpxnode->thisMObject());
+
+    for (auto output : graph->InternalAttributes())
+    {
+        if (!output->IsOutput())
+            continue;
+
+        MPlug mayaInput = node.findPlug(output->Name().c_str(), true);
+        if (mayaInput.isNull())
+        {
+            continue;
+        }
+
+        MStatus inSuccess;
+        auto outputData = dataBlock.outputValue(
+                mayaInput.attribute(),
+                &inSuccess);
+
+        CHECK_MSTATUS(inSuccess);
+
+        MayaTypeRegistry::GetRegistry()->ToAttribute(
+                outputData, output);
+    }
+}
+
+
+Gex::Profiler GexMaya::GexNode::GetProfiler() const
+{
+    return profiler;
+}
+
+
+Gex::Attribute* GexMaya::GexNode::ToGexAttr(MObject attr) const
+{
+    Gex::CompoundNode* graph = Graph();
+    MFnAttribute mfnattr(attr);
+
+    return graph->FindAttribute(mfnattr.name().asUTF8());
+}
+
+
+bool GexMaya::GexNode::IsGraphInput(MObject attr) const
+{
+    Gex::Attribute* gexAttr = ToGexAttr(attr);
+
+    return (gexAttr && gexAttr->IsInput());
+}
+
+
+bool GexMaya::GexNode::IsGraphOutput(MObject attr) const
+{
+    Gex::Attribute* gexAttr = ToGexAttr(attr);
+
+    return (gexAttr && gexAttr->IsOutput());
+}
+
+
+Gex::CompoundNode* GexMaya::GexNode::Graph() const
+{
+    MStatus success;
+    MPlug plug = MFnDependencyNode(mpxnode->thisMObject()).findPlug(
+            graphAttributeName, true, &success);
 
     if (!success)
     {
@@ -285,10 +401,99 @@ Gex::CompoundNode* GexMaya::GexNetworkNode::Graph() const
 }
 
 
+// -------------------------------------------------
+// GEX NETWORK NODE --------------------------------
+// -------------------------------------------------
+MObject GexMaya::GexNetworkNode::graphAttr;
+MObject GexMaya::GexNetworkNode::extraAttr;
+
+
+GexMaya::GexNetworkNode::GexNetworkNode(): GexNode(this)
+{
+
+}
+
+
+void InitGraph(MObject node, const MObject& attr,
+               const std::string& rootNodeType,
+               const std::string& rootNodeName)
+{
+    MGlobal::displayInfo("Post constructor.");
+    MFnDependencyNode depNode(node);
+    auto plug = depNode.findPlug(attr, true);
+
+    auto* graphData = new GexMaya::GraphData();
+
+    Gex::Node* deformerGraph = Gex::NodeFactory::GetFactory()->CreateNode(
+            rootNodeType, rootNodeName);
+
+    graphData->SetGraph(Gex::CompoundNode::FromNode(deformerGraph));
+
+    plug.setMPxData(graphData);
+}
+
+
+struct CompNodeWrapper
+{
+    GexMaya::GexNode* gexNode = nullptr;
+    Gex::CompoundNode* compNode = nullptr;
+};
+
+
+void AttributeToPlugFunc(MNodeMessage::AttributeMessage msg,
+                         MPlug &plug, void *clientData)
+{
+    auto* graph = ((CompNodeWrapper*) clientData)->compNode;
+    GexMaya::GexNode* gexNode = ((CompNodeWrapper*) clientData)->gexNode;
+
+    MString name = plug.name();
+    std::string mname = name.asUTF8();
+    if (msg == MNodeMessage::kAttributeAdded)
+    {
+        MFnAttribute attr(plug.attribute());
+        Gex::Attribute* gexAttr = graph->FindAttribute(attr.name().asUTF8());
+        if (gexAttr && gexAttr->IsUserDefined())
+        {
+            if (attr.isArray() && gexAttr->IsMulti())
+            {
+                gexNode->RegisterCustomAttribute(
+                        gexAttr, MObjectHandle(plug.attribute()));
+            }
+        }
+    }
+
+    if (!MFileIO::isReadingFile())
+    {
+        MNodeMessage::removeCallback(MMessage::currentCallbackId());
+    }
+}
+
+
+void GexMaya::GexNetworkNode::postConstructor()
+{
+    InitGraph(thisMObject(), graphAttr,
+              "CompoundNode", "Graph");
+
+
+    if (MFileIO::isReadingFile())
+    {
+        auto* wrapper = new CompNodeWrapper();
+        wrapper->gexNode = this;
+        wrapper->compNode = Graph();
+
+        MObject this_ = thisMObject();
+        MNodeMessage::addAttributeAddedOrRemovedCallback(
+                this_, &AttributeToPlugFunc, wrapper);
+    }
+}
+
+
+
+
 MStatus GexMaya::GexNetworkNode::initialize()
 {
     MFnTypedAttribute at;
-    graphAttr = at.create("graph", "sg", GraphData::id,
+    graphAttr = at.create(GRAPH_ATTR, GRAPH_ATTR_SHORT, GraphData::id,
                           MFnPluginData().create(GraphData::id));
     at.setChannelBox(false);
     at.setKeyable(false);
@@ -297,34 +502,6 @@ MStatus GexMaya::GexNetworkNode::initialize()
     addAttribute(graphAttr);
 
     return MS::kSuccess;
-}
-
-
-bool GexMaya::GexNetworkNode::IsGraphInput(MObject attr) const
-{
-    for (auto at : Inputs())
-    {
-        if (at.second.object() == attr)
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-
-bool GexMaya::GexNetworkNode::IsGraphOutput(MObject attr) const
-{
-    for (auto at : Outputs())
-    {
-        if (at.second.object() == attr)
-        {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 
@@ -374,26 +551,7 @@ void* GexMaya::GexNetworkNode::creator()
 
 MStatus GexMaya::GexNetworkNode::compute(const MPlug &plug, MDataBlock &dataBlock)
 {
-    for (const auto& inp : Inputs())
-    {
-        MObjectHandle in = inp.second;
-        if (!in.isValid())
-        {
-            MGlobal::displayWarning(("Skipping input " + inp.first->Longname()).c_str());
-            continue;
-        }
-
-        MStatus inSuccess;
-        auto inputData = dataBlock.inputValue(
-                in.object(), &inSuccess);
-
-        CHECK_MSTATUS(inSuccess);
-
-        MayaTypeRegistry::GetRegistry()->ToAttribute(inputData, inp.first);
-    }
-
-    Gex::Profiler profiler = Gex::MakeProfiler();
-
+    // Retrieve graph.
     MPxData* data = dataBlock.inputValue(graphAttr).asPluginData();
     if (data->typeId() != GraphData::id)
     {
@@ -402,31 +560,20 @@ MStatus GexMaya::GexNetworkNode::compute(const MPlug &plug, MDataBlock &dataBloc
 
     Gex::CompoundNode* graph = static_cast<GraphData*>(data)->Graph();
 
-    bool result = graph->Run(profiler);
+    // Push maya data to graph inputs.
+    PushInputs(graph, dataBlock);
+
+    // Compute internal graph.
+    auto prof = GetProfiler();
+    bool result = graph->Run(prof);
     if (!result)
     {
         MGlobal::displayError("Failed evaluating Gex graph.");
         return MS::kFailure;
     }
-    for (const auto& outp : Outputs())
-    {
-        MObjectHandle out = outp.second;
-        if (!out.isValid())
-        {
-            MGlobal::displayWarning(("Skipping output " + outp.first->Longname()).c_str());
-            continue;
-        }
 
-        MStatus outSuccess;
-        auto outputData = dataBlock.outputValue(
-                out.object(), &outSuccess);
-
-        CHECK_MSTATUS(outSuccess);
-
-        MayaTypeRegistry::GetRegistry()->ToMayaAttribute(outp.first, outputData);
-        outputData.setClean();
-    }
-
+    // Push out graph data to maya outputs.
+    PullOutputs(graph, dataBlock);
     return MS::kSuccess;
 }
 
@@ -437,11 +584,30 @@ MStatus GexMaya::GexNetworkNode::compute(const MPlug &plug, MDataBlock &dataBloc
 // DEFORMER ----------------------------------------
 // -------------------------------------------------
 MObject GexMaya::GexDeformer::graphAttr;
+MObject GexMaya::GexDeformer::testAttr;
 
 
 GexMaya::GexDeformer::GexDeformer(): GexNode(this)
 {
 
+}
+
+
+void GexMaya::GexDeformer::postConstructor()
+{
+    InitGraph(thisMObject(), graphAttr,
+              "Deformer/Graph", "Graph");
+
+    if (MFileIO::isReadingFile())
+    {
+        auto* wrapper = new CompNodeWrapper();
+        wrapper->gexNode = this;
+        wrapper->compNode = Graph();
+
+        MObject this_ = thisMObject();
+        MNodeMessage::addAttributeAddedOrRemovedCallback(
+                this_, &AttributeToPlugFunc, wrapper);
+    }
 }
 
 
@@ -463,51 +629,27 @@ MStatus GexMaya::GexDeformer::deform(MDataBlock &block, MItGeometry &iter,
 
     Gex::CompoundNode* graph = cgdata->Graph();
 
+    PushInputs(graph, block);
+
     auto* itAt = graph->GetAttribute("GeomIt");
     if (itAt)
     {
-        itAt->Set(&iter);
+        MItGeometryWrapper wrapper(&iter);
+        size_t w = typeid(wrapper).hash_code();
+
+        bool preSet = itAt->Set<MItGeometryWrapper>(wrapper);
+        if (!preSet)
+        {
+            MGlobal::displayError("Failed pre setting deformer graph.");
+            return MS::kFailure;
+        }
 
         auto profiler = Gex::MakeProfiler();
         graph->Run(profiler);
     }
 
+    PullOutputs(graph, block);
     return MS::kSuccess;
-}
-
-
-Gex::CompoundNode* GexMaya::GexDeformer::Graph() const
-{
-    MStatus success;
-    MPlug plug = MFnDependencyNode(thisMObject()).findPlug(
-            graphAttr, true, &success);
-
-    if (!success)
-    {
-        MGlobal::displayWarning("Could not find any "
-                                "attached graph.");
-        return nullptr;
-    }
-
-    auto mdata = plug.asMObject();
-
-    MFnPluginData pdata(mdata);
-
-    MPxData* data = pdata.data(&success);
-    if (!success)
-    {
-        MGlobal::displayWarning("Could not retrieve plugin data.");
-        return nullptr;
-    }
-
-    if (data->typeId() != GraphData::id)
-    {
-        MGlobal::displayWarning("Invalid plugin data type.");
-        return nullptr;
-    }
-
-    auto gdata = static_cast<const GraphData*>(data);
-    return gdata->Graph();
 }
 
 
@@ -520,19 +662,9 @@ MStatus GexMaya::GexDeformer::initialize()
 {
     MFnTypedAttribute at;
 
-    MObject deformerGraphObject = MFnPluginData().create(GraphData::id);
+    graphAttr = at.create(GRAPH_ATTR, GRAPH_ATTR_SHORT, GraphData::id);  //,
+                          // defaultData.object());
 
-    MFnPluginData defaultData(deformerGraphObject);
-    MPxData* data = defaultData.data();
-
-    GexMaya::GraphData* defaultGraph = static_cast<GraphData*>(data);
-
-    Gex::Node* deformerGraph = Gex::NodeFactory::GetFactory()
-            ->CreateNode("Deformer/Graph", "Graph");
-
-    defaultGraph->SetGraph(Gex::CompoundNode::FromNode(deformerGraph));
-
-    graphAttr = at.create("graph", "sg", GraphData::id, defaultData.object());
     at.setChannelBox(false);
     at.setKeyable(false);
     at.setHidden(true);
@@ -562,6 +694,14 @@ MStatus GexMaya::GexDeformer::initialize()
 #define NODE_LIST_FLAG_L "-nodeList"
 
 
+#define GEX_NET_GRAPH_RETURN_STATUS(status) \
+if (cgraph && removeCallback) \
+{ \
+    cgraph->DeregisterAttributeCallback(callback); \
+}                                                 \
+return status;
+
+
 MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
 {
     MSyntax syntax;
@@ -588,6 +728,10 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
 
     MDGModifier modifier;
 
+    bool removeCallback = false;
+    Gex::CallbackId callback = 0;
+    Gex::CompoundNode* cgraph = nullptr;
+
     if (argsdb.isEdit() || argsdb.isQuery())
     {
         if (!names.length())
@@ -604,20 +748,7 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
 
         MFnDependencyNode depnode(node);
 
-//        if (depnode.typeId() != GexNetworkNode::id)
-//        {
-//            MGlobal::displayError("Provided node is not of the correct type.");
-//            return MS::kFailure;
-//        }
-
-//        MPxNode* mpxnode = depnode.userNode();
-//        auto* networkNode = static_cast<GexMaya::GexNetworkNode*>(mpxnode);
-//        if (!networkNode)
-//        {
-//            return MS::kFailure;
-//        }
-//        auto* cgraph = networkNode->Graph();
-        auto graphPlug = depnode.findPlug("graph", true);
+        auto graphPlug = depnode.findPlug(GRAPH_ATTR, true);
         if (graphPlug.isNull())
         {
             MGlobal::displayError("Provided node is not of the correct type.");
@@ -632,7 +763,7 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
             return MS::kFailure;
         }
 
-        Gex::CompoundNode* cgraph = static_cast<GraphData*>(data)->Graph();
+        cgraph = static_cast<GraphData*>(data)->Graph();
         if (!cgraph)
         {
             MGlobal::displayError("Failed loading graph");
@@ -646,8 +777,6 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
             // graph when it changes.
             auto* gexnode = dynamic_cast<GexNode*>(userNode);
 
-            bool removeCallback = false;
-            Gex::CallbackId callback;
             if (gexnode)
             {
                 removeCallback = true;
@@ -657,12 +786,6 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                             gexnode->AddCustomAttribute(at);
                         });
             }
-//            auto cbFunc = [userNode](Gex::Attribute* attribute, const Gex::AttributeChange& change)
-//            {
-//                AttributeChangedCallback<>(userNode, attribute, change);
-//            };
-//
-//            Gex::CallbackId callback = cgraph->RegisterAttributeCallback(cbFunc);
 
             if (argsdb.isFlagSet(UI_FLAG))
             {
@@ -693,7 +816,7 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                             if (!p)
                             {
                                 MGlobal::displayError("Invalid parent specified");
-                                return MS::kFailure;
+                                GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure);
                             }
 
                             auto* newNode = p->CreateNode(addnodetype.asUTF8(),
@@ -702,12 +825,14 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                             {
                                 MGlobal::displayWarning("Failed creating node of type " +
                                                         addnodetype + " with name " + addnodename);
-                                return MS::kFailure;
+                                GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure);
                             }
 
                             setResult(MString(newNode->Path().c_str()));
                         }
                     }
+
+                    GEX_NET_GRAPH_RETURN_STATUS(MS::kSuccess)
                 }
 
                 if (argsdb.isFlagSet(ADD_ATTRIBUTE_FLAG))
@@ -718,7 +843,7 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                     if (attrname.isEmpty() || attrtype.isEmpty())
                     {
                         MGlobal::displayError("Attribute name and type must be specified.");
-                        return MS::kFailure;
+                        GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure)
                     }
 
                     auto* attribute = cgraph->CreateAttributeFromTypeName(
@@ -728,9 +853,10 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                     {
                         MGlobal::displayError("Failed creating attribute "
                                               + attrname + " " + attrtype + " with type " + attrVtype);
-                        return MS::kFailure;
+                        GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure)
                     }
                     attribute->SetInternal(true);
+                    GEX_NET_GRAPH_RETURN_STATUS(MS::kSuccess)
                 }
 
                 if (argsdb.isFlagSet(CONNECT_FLAG))
@@ -745,20 +871,20 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                         if (!src)
                         {
                             MGlobal::displayError("Failed retrieving " + srcCnx + " attribute.");
-                            return MS::kFailure;
+                            GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure);
                         }
 
                         if (!dst)
                         {
                             MGlobal::displayError("Failed retrieving " + dstCnx + " attribute.");
-                            return MS::kFailure;
+                            GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure)
                         }
 
                         if (!dst->ConnectSource(src))
                         {
                             MGlobal::displayWarning(("Failed connecting attributes " +
                                                      src->Longname() + " with name " + dst->Longname()).c_str());
-                            return MS::kFailure;
+                            GEX_NET_GRAPH_RETURN_STATUS(MS::kFailure)
                         }
                     }
                 }
@@ -770,7 +896,7 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                 cgraph->DeregisterAttributeCallback(callback);
             }
 
-            return MS::kSuccess;
+            GEX_NET_GRAPH_RETURN_STATUS(MS::kSuccess)
         }
 
         else if (argsdb.isQuery())
@@ -788,22 +914,8 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
             }
         }
     }
-//    else
-//    {
-//        MObject node = modifier.createNode(GexNetworkNode::id);
-//        modifier.doIt();
-//
-//        MFnDependencyNode mfnnode(node);
-//        if (names.length())
-//        {
-//            mfnnode.setName(names[0]);
-//        }
-//
-//        setResult(mfnnode.name());
-//    }
 
-
-    return MStatus::kSuccess;
+    GEX_NET_GRAPH_RETURN_STATUS(MStatus::kSuccess)
 }
 
 
@@ -830,7 +942,14 @@ MStatus initializePlugin(MObject obj)
     MStatus status;
     MFnPlugin plugin(obj, "DB", "0.0", "Any");
 
+    // Initialize ui plugin loader.
+    Gex::Ui::UiPluginLoader::Initialize();
+
+    // Load plugin.
     GexMaya::LoadPlugin();
+
+    // Load ui plugin.
+    GexMaya::LoadUiPlugin();
 
     status = plugin.registerData("Gex::GraphData", GexMaya::GraphData::id,
                                  &GexMaya::GraphData::create);

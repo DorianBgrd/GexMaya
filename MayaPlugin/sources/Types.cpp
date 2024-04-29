@@ -42,16 +42,22 @@ size_t GexMaya::MDataBlockHandler::ValueHash(std::any val) const
 }
 
 
+std::any GexMaya::MItGeometryHandler::InitValue() const
+{
+    return std::make_any<MItGeometryWrapper>(MItGeometryWrapper());
+}
+
+
 std::any GexMaya::MItGeometryHandler::CopyValue(std::any source) const
 {
-    MItGeometry* block = std::any_cast<MItGeometry*>(source);
-    return std::make_any<MItGeometry*>(block);
+    MItGeometryWrapper block = std::any_cast<MItGeometryWrapper>(source);
+    return std::make_any<MItGeometryWrapper>(block);
 }
 
 
 size_t GexMaya::MItGeometryHandler::Hash() const
 {
-    return typeid(MItGeometry*).hash_code();
+    return typeid(MItGeometryWrapper).hash_code();
 }
 
 
