@@ -22,6 +22,7 @@
 
 #include "api.h"
 
+#include <map>
 #include <vector>
 
 
@@ -29,6 +30,7 @@ namespace GexMaya
 {
     typedef std::shared_ptr<Gex::CompoundNode> GraphPtr;
     typedef std::vector<std::pair<Gex::Attribute*, MObjectHandle>> AttrTuple;
+    typedef std::map<int, std::string> AttrMatch;
 
     class GEX_MAYA GraphData: public MPxData
     {
@@ -65,13 +67,11 @@ namespace GexMaya
     };
 
 
-    class GEX_MAYA GraphAttributesData: public MPxData
+    class GEX_MAYA GraphAttributesMatch: public MPxData
     {
-        AttrTuple tuple;
+        AttrMatch attributesMatch;
 
     public:
-        GraphAttributesData();
-
         static MTypeId id;
 
         MTypeId typeId() const override;
@@ -90,17 +90,19 @@ namespace GexMaya
 
         static void* create();
 
-        AttrTuple Data() const;
+        AttrMatch Data() const;
 
-        void SetData(AttrTuple data);
+        void SetData(AttrMatch data);
+
+        void SetMatch(int index, std::string name);
+
+        std::string GetMatch(int index) const;
     };
 
 
     struct GEX_MAYA GexNode
     {
     private:
-        AttrTuple inputs;
-        AttrTuple outputs;
         MPxNode* mpxnode;
         MString graphAttributeName;
 
@@ -111,16 +113,11 @@ namespace GexMaya
 
         Gex::CompoundNode* Graph() const;
 
-        void AddCustomAttribute(Gex::Attribute*);
+        int NextMatchIndex(std::string name) const;
 
-        void RegisterCustomAttribute(Gex::Attribute* attribute,
-                                     MObjectHandle mayaAttr);
+        MStatus AddCustomAttribute(Gex::Attribute*);
 
         void RemoveCustomAttribute(Gex::Attribute*);
-
-        AttrTuple Inputs() const;
-
-        AttrTuple Outputs() const;
 
         Gex::Attribute* ToGexAttr(MObject attr) const;
 
@@ -142,10 +139,11 @@ namespace GexMaya
     {
     public:
         static MTypeId id;
-
-        static MObject graphAttr;
-
-        static MObject extraAttr;
+        static MObject gexGraph;
+        static MObject gexInputs;
+        static MObject gexOutputs;
+        static MObject gexInputsMatch;
+        static MObject gexOutputsMatch;
 
         GexNetworkNode();
 
@@ -156,21 +154,17 @@ namespace GexMaya
         static void *creator();
 
         static MStatus initialize();
-
-        MStatus dependsOn(const MPlug& plug, const MPlug& other,
-                          bool &depends) const override;
-
-        MStatus setDependentsDirty(const MPlug &plug,
-                                   MPlugArray &plugArray)
-                                   override;
     };
 
 
     class GEX_MAYA GexDeformer: public MPxDeformerNode, public GexNode
     {
     public:
-        static MObject graphAttr;
-        static MObject testAttr;
+        static MObject gexGraph;
+        static MObject gexInputs;
+        static MObject gexOutputs;
+        static MObject gexInputsMatch;
+        static MObject gexOutputsMatch;
         static MTypeId id;
 
         GexDeformer();

@@ -5,8 +5,11 @@
 
 
 GexMaya::GraphWindow::GraphWindow(Gex::CompoundNode* c,
+      CloseCallback callback,
       QWidget* parent): QDialog(parent)
 {
+    closeCallback = callback;
+
     Gex::Ui::NodeItem::SetDefaultWidth(225);
     Gex::Ui::NodeItem::SetDefaultSpacing(10);
     Gex::Ui::NodeItem::SetDefaultFooter(10);
@@ -35,4 +38,13 @@ GexMaya::GraphWindow::GraphWindow(Gex::CompoundNode* c,
 
     graphView = new Gex::Ui::GraphView(cmp, this);
     layout->addWidget(graphView);
+}
+
+
+void GexMaya::GraphWindow::closeEvent(QCloseEvent* event)
+{
+    if (closeCallback)
+        closeCallback();
+
+    QDialog::closeEvent(event);
 }
