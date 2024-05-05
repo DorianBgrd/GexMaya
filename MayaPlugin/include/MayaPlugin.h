@@ -21,6 +21,7 @@
 #include "maya/MNodeMessage.h"
 
 #include "api.h"
+#include "defs.h"
 
 #include <map>
 #include <vector>
@@ -67,63 +68,20 @@ namespace GexMaya
     };
 
 
-    class GEX_MAYA GraphAttributesMatch: public MPxData
-    {
-        AttrMatch attributesMatch;
-
-    public:
-        static MTypeId id;
-
-        MTypeId typeId() const override;
-
-        MStatus readASCII(const MArgList &argList, unsigned int &endOfTheLastParsedElement) override;
-
-        MStatus readBinary(std::istream &in, unsigned int length) override;
-
-        MStatus writeASCII(std::ostream &out) override;
-
-        MStatus writeBinary(std::ostream &out) override;
-
-        void copy(const MPxData& src) override;
-
-        MString name() const override;
-
-        static void* create();
-
-        AttrMatch Data() const;
-
-        void SetData(AttrMatch data);
-
-        void SetMatch(int index, std::string name);
-
-        std::string GetMatch(int index) const;
-    };
-
-
     struct GEX_MAYA GexNode
     {
     private:
-        MPxNode* mpxnode;
-        MString graphAttributeName;
-
         Gex::Profiler profiler;
+        MPxNode* mpxnode;
 
     public:
-        GexNode(MPxNode* node, const MString& graphAttributeName="graph");
+        GexNode(MPxNode* node);
 
         Gex::CompoundNode* Graph() const;
-
-        int NextMatchIndex(std::string name) const;
 
         MStatus AddCustomAttribute(Gex::Attribute*);
 
         void RemoveCustomAttribute(Gex::Attribute*);
-
-        Gex::Attribute* ToGexAttr(MObject attr) const;
-
-        bool IsGraphInput(MObject attr) const;
-
-        bool IsGraphOutput(MObject attr) const;
 
         void PushInputs(Gex::CompoundNode* graph,
                         MDataBlock& dataBlock);
@@ -139,11 +97,8 @@ namespace GexMaya
     {
     public:
         static MTypeId id;
-        static MObject gexGraph;
-        static MObject gexInputs;
-        static MObject gexOutputs;
-        static MObject gexInputsMatch;
-        static MObject gexOutputsMatch;
+
+        GEX_NODE_ATTRIBUTES
 
         GexNetworkNode();
 
@@ -160,12 +115,9 @@ namespace GexMaya
     class GEX_MAYA GexDeformer: public MPxDeformerNode, public GexNode
     {
     public:
-        static MObject gexGraph;
-        static MObject gexInputs;
-        static MObject gexOutputs;
-        static MObject gexInputsMatch;
-        static MObject gexOutputsMatch;
         static MTypeId id;
+
+        GEX_NODE_ATTRIBUTES
 
         GexDeformer();
 
@@ -180,7 +132,7 @@ namespace GexMaya
     };
 
 
-    class GexNetworkGraph: public MPxCommand
+    class GEX_MAYA GexNetworkGraph: public MPxCommand
     {
     public:
         MStatus doIt(const MArgList &args) override;

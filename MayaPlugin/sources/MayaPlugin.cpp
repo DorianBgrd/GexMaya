@@ -8,6 +8,8 @@
 #include "maya/MArgList.h"
 #include "maya/MFileIO.h"
 #include "maya/MFnGenericAttribute.h"
+#include "maya/MFnCompoundAttribute.h"
+#include "maya/MFnTypedAttribute.h"
 
 #include "MayaPlugin/include/GraphView.h"
 #include "MayaPlugin/include/Nodes.h"
@@ -23,20 +25,25 @@
 #define GRAPH_INPUTS_ATTR "gexInputs"
 #define GRAPH_INPUTS_ATTR_SHORT "gxi"
 
+#define GRAPH_INPUTS_NAME_ATTR "gexInputName"
+#define GRAPH_INPUTS_NAME_ATTR_SHORT "gxin"
+
+#define GRAPH_INPUTS_VALUE_ATTR "gexInputValue"
+#define GRAPH_INPUTS_VALUE_ATTR_SHORT "gxiv"
+
 #define GRAPH_OUTPUTS_ATTR "gexOutputs"
 #define GRAPH_OUTPUTS_ATTR_SHORT "gxo"
 
-#define GRAPH_INPUTS_MATCH_ATTR "gexInputsMatch"
-#define GRAPH_INPUTS_MATCH_ATTR_SHORT "gxim"
+#define GRAPH_OUTPUTS_NAME_ATTR "gexOutputName"
+#define GRAPH_OUTPUTS_NAME_ATTR_SHORT "gxon"
 
-#define GRAPH_OUTPUTS_MATCH_ATTR "gexOutputsMatch"
-#define GRAPH_OUTPUTS_MATCH_ATTR_SHORT "gxom"
+#define GRAPH_OUTPUTS_VALUE_ATTR "gexOutputValue"
+#define GRAPH_OUTPUTS_VALUE_ATTR_SHORT "gxov"
 
 
 MTypeId GexMaya::GexNetworkNode::id = 0x7ffff;
 MTypeId GexMaya::GraphData::id = 0x7ffff + 8;
-MTypeId GexMaya::GexDeformer::id = 0x7ffff + 24;
-MTypeId GexMaya::GraphAttributesMatch::id = 0x7ffff + 48;
+MTypeId GexMaya::GexDeformer::id = 0x7ffff + 16;
 
 
 GexMaya::GraphData::GraphData(): MPxData()
@@ -136,166 +143,14 @@ void* GexMaya::GraphData::create()
 
 
 // -------------------------------------------------
-// GEX INPUT MATCH ---------------------------------
-// -------------------------------------------------
-MTypeId GexMaya::GraphAttributesMatch::typeId() const
-{
-    return id;
-}
-
-
-MStatus GexMaya::GraphAttributesMatch::readASCII(
-        const MArgList &argList,
-        unsigned int &endOfTheLastParsedElement)
-{
-    return MS::kSuccess;
-}
-
-
-MStatus GexMaya::GraphAttributesMatch::readBinary(
-        std::istream &in, unsigned int length)
-{
-    return MS::kSuccess;
-}
-
-
-MStatus GexMaya::GraphAttributesMatch::writeASCII(std::ostream &out)
-{
-    std::string ascii;
-    for (auto indexName : attributesMatch)
-    {
-        if (!ascii.empty())
-            ascii += "@";
-        ascii += std::to_string(indexName.first);
-        ascii += "@";
-        ascii += indexName.second;
-    }
-
-    out << std::quoted(ascii);
-    return MS::kSuccess;
-}
-
-
-MStatus GexMaya::GraphAttributesMatch::writeBinary(std::ostream &out)
-{
-    return writeASCII(out);
-}
-
-
-void GexMaya::GraphAttributesMatch::copy(const MPxData& src)
-{
-    if (src.typeId() != typeId())
-    {
-        return;
-    }
-
-    const auto* other = static_cast<const GraphAttributesMatch*>(&src);
-    attributesMatch = other->Data();
-}
-
-
-MString GexMaya::GraphAttributesMatch::name() const
-{
-    return "Gex::AttributesMatch";
-}
-
-
-void* GexMaya::GraphAttributesMatch::create()
-{
-    return new GraphAttributesMatch();
-}
-
-
-GexMaya::AttrMatch GexMaya::GraphAttributesMatch::Data() const
-{
-    return attributesMatch;
-}
-
-
-void GexMaya::GraphAttributesMatch::SetData(AttrMatch data)
-{
-    attributesMatch = data;
-}
-
-
-void GexMaya::GraphAttributesMatch::SetMatch(int index, std::string name)
-{
-    attributesMatch[index] = name;
-}
-
-
-std::string GexMaya::GraphAttributesMatch::GetMatch(int index) const
-{
-    auto idx = attributesMatch.find(index);
-    if (idx == attributesMatch.end())
-        return {};
-
-    return idx->second;
-}
-
-
-// -------------------------------------------------
-// GEX CALLBACK ------------------------------------
-// -------------------------------------------------
-
-// -------------------------------------------------
 // GEX NODE ----------------------------------------
 // -------------------------------------------------
-GexMaya::GexNode::GexNode(MPxNode* src, const MString& attr)
+
+
+GexMaya::GexNode::GexNode(MPxNode* src)
 {
     mpxnode = src;
     profiler = Gex::MakeProfiler();
-    graphAttributeName = attr;
-}
-
-
-int GexMaya::GexNode::NextMatchIndex(std::string name) const
-{
-    MFnDependencyNode depnode(mpxnode->thisMObject());
-    MPlug match = depnode.findPlug(GRAPH_INPUTS_MATCH_ATTR, true);
-
-    if (match.isNull())
-    {
-        return -1;
-    }
-
-    MFnPluginData mPluginData(match.asMObject());
-    MPxData* pluginData = mPluginData.data();
-    if (!pluginData || pluginData->typeId() != GraphAttributesMatch::id)
-        return -1;
-
-    // Check for existing match.
-    auto* inputsMatch = static_cast<GraphAttributesMatch*>(pluginData);
-    for(const auto& match : inputsMatch->Data())
-    {
-        if (match.second == name)
-        {
-            return match.first;
-        }
-    }
-
-    // Search next available index.
-    MPlug inputs = depnode.findPlug(GRAPH_INPUTS_ATTR, true);
-    if (inputs.isNull())
-    {
-        return -1;
-    }
-
-    MIntArray indices;
-    inputs.getExistingArrayAttributeIndices(indices);
-
-    int previousIndex = -1;
-    for (int index : indices)
-    {
-        if ((index - previousIndex) > 1)
-        {
-            return previousIndex + 1;
-        }
-
-        previousIndex = index;
-    }
-
-    return 0;
 }
 
 
@@ -304,71 +159,73 @@ MStatus GexMaya::GexNode::AddCustomAttribute(Gex::Attribute* attribute)
     // Find inputs plug and next entry index.
     MFnDependencyNode depnode(mpxnode->thisMObject());
 
+    // Resolve node attribute names.
     bool isOutput = attribute->IsOutput();
-    MString inputName = GRAPH_INPUTS_ATTR;
+    MString inputAttrNameStr = GRAPH_INPUTS_NAME_ATTR;
+    MString inputAttrValueStr = GRAPH_INPUTS_VALUE_ATTR;
     if (isOutput)
-        inputName = GRAPH_OUTPUTS_ATTR;
-
-    MPlug inputsPlug = depnode.findPlug(inputName, true);
-
-    int nextIndex = NextMatchIndex(attribute->Name());
-    if (nextIndex == -1)
     {
-        MGlobal::displayWarning("Could not register the "
-                                "next Gex graph input.");
+        inputAttrNameStr = GRAPH_OUTPUTS_NAME_ATTR;
+        inputAttrValueStr = GRAPH_OUTPUTS_VALUE_ATTR;
+    }
+
+    // Resolve node attributes.
+    MObject inputAttrName = depnode.attribute(inputAttrNameStr);
+    MObject inputAttrValue = depnode.attribute(inputAttrValueStr);
+    if (inputAttrValue.isNull() || inputAttrName.isNull())
+    {
+        MGlobal::displayError("No input attributes found.");
         return MS::kFailure;
     }
 
+    MPlug inputNamePlug = depnode.findPlug(inputAttrName, true);
+    MPlug inputValuePlug = depnode.findPlug(inputAttrValue, true);
+
+    if (inputNamePlug.isNull() || inputValuePlug.isNull())
+        return MS::kFailure;
+
+    // Get new attribute index.
+    MIntArray indices;
+    inputNamePlug.getExistingArrayAttributeIndices(indices);
+
+    int destIndex = -1;
+    for (int index : indices)
+    {
+        if (index - destIndex > 1)
+        {
+            destIndex++;
+            break;
+        }
+
+        destIndex = index;
+    }
+
+    destIndex++;
     // Create a "proxy" plug with the correct name.
     MObject attr = MayaTypeRegistry::GetRegistry()->CreateAttribute(
             attribute, mpxnode->thisMObject());
 
-    MPlug plug = depnode.findPlug(attr, true);
-    if (plug.isNull())
+    if (attr.isNull())
     {
-        MGlobal::displayWarning("Failed creating input proxy plug.");
+        MGlobal::displayError(("Could not create new attribute " + attribute->Name()).c_str());
         return MS::kFailure;
     }
 
-    MPlug inputsIndex = inputsPlug.elementByLogicalIndex(nextIndex);
-    if (inputsIndex.isNull())
-    {
-        MGlobal::displayWarning("Failed retrieving matching input index.");
-        return MS::kFailure;
-    }
+    MPlug proxy = depnode.findPlug(attr, true);
 
-    // Connect the "proxy" plug to the inputs plug.
+    // Create the next index.
+    MPlug newIndexName = inputNamePlug.elementByLogicalIndex(destIndex);
+    newIndexName.setString(attribute->Name().c_str());
+
+    MPlug newIndexValue = inputValuePlug.elementByLogicalIndex(destIndex);
+
+    // Connect attribute to proxy.
     MDGModifier modifier;
     if (isOutput)
-        modifier.connect(inputsIndex, plug);
+        modifier.connect(newIndexValue, proxy);
     else
-        modifier.connect(plug, inputsIndex);
+        modifier.connect(proxy, newIndexValue);
     modifier.doIt();
-
-    // Register match for this plug.
-    MString matchAttrName = GRAPH_INPUTS_MATCH_ATTR;
-    if (isOutput)
-        matchAttrName = GRAPH_OUTPUTS_MATCH_ATTR;
-
-    MPlug matchPlug = depnode.findPlug(matchAttrName, true);
-    if (matchPlug.isNull())
-    {
-        MGlobal::displayWarning("Could not find match plug.");
-        return MS::kFailure;
-    }
-
-    MFnPluginData mPluginData(matchPlug.asMObject());
-    MPxData* pluginData = mPluginData.data();
-    if (!pluginData || pluginData->typeId() != GraphAttributesMatch::id)
-    {
-        return MS::kFailure;
-    }
-
-    auto* inputsMatch = static_cast<GraphAttributesMatch*>(pluginData);
-    inputsMatch->SetMatch(nextIndex, attribute->Name());
-    MStatus result = matchPlug.setMObject(mPluginData.object());
-
-    bool success  = result;
 
     return MS::kSuccess;
 }
@@ -380,50 +237,35 @@ void GexMaya::GexNode::RemoveCustomAttribute(Gex::Attribute*)
 }
 
 
-void GexMaya::GexNode::PushInputs(Gex::CompoundNode* graph, MDataBlock& dataBlock)
-{
+void GexMaya::GexNode::PushInputs(Gex::CompoundNode* graph, MDataBlock& dataBlock) {
     MStatus success;
     MFnDependencyNode node(mpxnode->thisMObject());
 
-    auto match = node.findPlug(GRAPH_INPUTS_MATCH_ATTR, true);
-    auto inputs = node.findPlug(GRAPH_INPUTS_ATTR, true);
-    if (match.isNull() || inputs.isNull())
+    MObject attributeName = node.attribute(GRAPH_INPUTS_NAME_ATTR);
+    MObject attributeValue = node.attribute(GRAPH_INPUTS_VALUE_ATTR);
+
+    if (attributeName.isNull() || attributeValue.isNull())
         return;
 
-    MFnPluginData pluginData(match.asMObject());
-    MPxData* data = pluginData.data();
-    if (!data)
-    {
-        return;
-    }
+    MArrayDataHandle inputsNamesHandle = dataBlock.inputArrayValue(attributeName);
+    MArrayDataHandle inputValuesHandle = dataBlock.inputArrayValue(attributeValue);
 
-    if (data->typeId() != GraphAttributesMatch::id)
+    if (!inputsNamesHandle.elementCount())
         return;
 
-
-    MStatus inSuccess;
-
-    auto* matchData = static_cast<GraphAttributesMatch*>(data);
-    for (const auto& attrMatch : matchData->Data())
-    {
-        int index = attrMatch.first;
-        std::string name = attrMatch.second;
-
-        Gex::Attribute* attribute = graph->FindAttribute(name);
-        if (!attribute)
+    do {
+        MString attrName = inputsNamesHandle.inputValue().asString();
+        Gex::Attribute *gexAttr = graph->FindAttribute(attrName.asUTF8());
+        if (!gexAttr) {
+            MGlobal::displayWarning("Gex attribute " + attrName + " not found.");
             continue;
+        }
 
-        auto inputData = dataBlock.inputArrayValue(
-                inputs, &inSuccess);
-
-        CHECK_MSTATUS(inSuccess);
-
-        inputData.jumpToElement(index);
-        MDataHandle handle = inputData.inputValue();
-
+        MDataHandle indexValueHandle = inputValuesHandle.inputValue();
         MayaTypeRegistry::GetRegistry()->ToAttribute(
-                handle, attribute);
+                indexValueHandle, gexAttr);
     }
+    while (inputsNamesHandle.next());
 }
 
 
@@ -432,45 +274,31 @@ void GexMaya::GexNode::PullOutputs(Gex::CompoundNode* graph, MDataBlock& dataBlo
     MStatus success;
     MFnDependencyNode node(mpxnode->thisMObject());
 
-    auto match = node.findPlug(GRAPH_OUTPUTS_MATCH_ATTR, true);
-    auto outputs = node.findPlug(GRAPH_OUTPUTS_ATTR, true);
-    if (match.isNull() || outputs.isNull())
+    MObject attributeName = node.attribute(GRAPH_OUTPUTS_NAME_ATTR);
+    MObject attributeValue = node.attribute(GRAPH_OUTPUTS_VALUE_ATTR);
+
+    if (attributeName.isNull() || attributeValue.isNull())
         return;
 
-    MFnPluginData pluginData(match.asMObject());
-    MPxData* data = pluginData.data();
-    if (!data)
-    {
-        return;
-    }
+    MArrayDataHandle outputsNamesHandle = dataBlock.outputArrayValue(attributeName);
+    MArrayDataHandle outputValuesHandle = dataBlock.outputArrayValue(attributeValue);
 
-    if (data->typeId() != GraphAttributesMatch::id)
+    if (!outputsNamesHandle.elementCount())
         return;
 
-
-    MStatus inSuccess;
-
-    auto* matchData = static_cast<GraphAttributesMatch*>(data);
-    for (const auto& attrMatch : matchData->Data())
-    {
-        int index = attrMatch.first;
-        std::string name = attrMatch.second;
-
-        Gex::Attribute* attribute = graph->FindAttribute(name);
-        if (!attribute)
+    do {
+        MString attrName = outputsNamesHandle.outputValue().asString();
+        Gex::Attribute *gexAttr = graph->FindAttribute(attrName.asUTF8());
+        if (!gexAttr) {
+            MGlobal::displayWarning("Gex attribute " + attrName + " not found.");
             continue;
+        }
 
-        auto inputData = dataBlock.inputArrayValue(
-                outputs, &inSuccess);
-
-        CHECK_MSTATUS(inSuccess);
-
-        inputData.jumpToElement(index);
-        MDataHandle handle = inputData.outputValue();
-
-        MayaTypeRegistry::GetRegistry()->ToAttribute(
-                handle, attribute);
+        MDataHandle indexValueHandle = outputValuesHandle.outputValue();
+        MayaTypeRegistry::GetRegistry()->ToMayaAttribute(
+                gexAttr, indexValueHandle);
     }
+    while (outputsNamesHandle.next());
 }
 
 
@@ -480,36 +308,11 @@ Gex::Profiler GexMaya::GexNode::GetProfiler() const
 }
 
 
-Gex::Attribute* GexMaya::GexNode::ToGexAttr(MObject attr) const
-{
-    Gex::CompoundNode* graph = Graph();
-    MFnAttribute mfnattr(attr);
-
-    return graph->FindAttribute(mfnattr.name().asUTF8());
-}
-
-
-bool GexMaya::GexNode::IsGraphInput(MObject attr) const
-{
-    Gex::Attribute* gexAttr = ToGexAttr(attr);
-
-    return (gexAttr && gexAttr->IsInput());
-}
-
-
-bool GexMaya::GexNode::IsGraphOutput(MObject attr) const
-{
-    Gex::Attribute* gexAttr = ToGexAttr(attr);
-
-    return (gexAttr && gexAttr->IsOutput());
-}
-
-
 Gex::CompoundNode* GexMaya::GexNode::Graph() const
 {
     MStatus success;
     MPlug plug = MFnDependencyNode(mpxnode->thisMObject()).findPlug(
-            graphAttributeName, true, &success);
+            GEX_GRAPH_ATTR, true, &success);
 
     if (!success)
     {
@@ -541,13 +344,46 @@ Gex::CompoundNode* GexMaya::GexNode::Graph() const
 
 
 // -------------------------------------------------
+// GRAPH METHODS -----------------------------------
+// -------------------------------------------------
+MStatus InitGraph(MObject node,
+                  const std::string& rootNodeType,
+                  const std::string& rootNodeName)
+{
+    MGlobal::displayInfo("Post constructor.");
+    MFnDependencyNode depNode(node);
+    MObject gexGraphAttr = depNode.attribute(GEX_GRAPH_ATTR);
+    auto plug = depNode.findPlug(gexGraphAttr, true);
+
+    if (plug.isNull())
+    {
+        MGlobal::displayError("Could not find graph plug.");
+        return MS::kFailure;
+    }
+
+    MFnPluginData pluginData;
+    pluginData.create(GexMaya::GraphData::id);
+
+    MPxData* data = pluginData.data();
+    auto* graphData = dynamic_cast<GexMaya::GraphData*>(data);
+    if (!graphData)
+    {
+        return MS::kFailure;
+    }
+
+    Gex::Node* deformerGraph = Gex::NodeFactory::GetFactory()->CreateNode(
+            rootNodeType, rootNodeName);
+
+    graphData->SetGraph(Gex::CompoundNode::FromNode(deformerGraph));
+
+    plug.setMObject(pluginData.object());
+    return MS::kSuccess;
+}
+
+// -------------------------------------------------
 // GEX NETWORK NODE --------------------------------
 // -------------------------------------------------
-MObject GexMaya::GexNetworkNode::gexGraph;
-MObject GexMaya::GexNetworkNode::gexInputs;
-MObject GexMaya::GexNetworkNode::gexOutputs;
-MObject GexMaya::GexNetworkNode::gexInputsMatch;
-MObject GexMaya::GexNetworkNode::gexOutputsMatch;
+GEX_NODE_ATTRIBUTES_DEF(GexMaya::GexNetworkNode)
 
 
 GexMaya::GexNetworkNode::GexNetworkNode(): GexNode(this)
@@ -556,101 +392,18 @@ GexMaya::GexNetworkNode::GexNetworkNode(): GexNode(this)
 }
 
 
-void InitGraph(MObject node, const MObject& attr,
-               const std::string& rootNodeType,
-               const std::string& rootNodeName)
-{
-    MGlobal::displayInfo("Post constructor.");
-    MFnDependencyNode depNode(node);
-    auto plug = depNode.findPlug(attr, true);
-
-    auto* graphData = new GexMaya::GraphData();
-
-    Gex::Node* deformerGraph = Gex::NodeFactory::GetFactory()->CreateNode(
-            rootNodeType, rootNodeName);
-
-    graphData->SetGraph(Gex::CompoundNode::FromNode(deformerGraph));
-
-    plug.setMPxData(graphData);
-}
-
 
 void GexMaya::GexNetworkNode::postConstructor()
 {
-    InitGraph(thisMObject(), gexGraph,
-              "CompoundNode", "Graph");
+    InitGraph(thisMObject(),
+              "CompoundNode",
+              "Graph");
 }
 
 
 MStatus GexMaya::GexNetworkNode::initialize()
 {
-    MFnTypedAttribute at;
-
-    gexGraph = at.create(GEX_GRAPH_ATTR, GEX_GRAPH_ATTR_SHORT, GraphData::id);
-
-    at.setChannelBox(false);
-    at.setKeyable(false);
-    at.setHidden(true);
-
-    addAttribute(gexGraph);
-
-    MFnGenericAttribute gen;
-    gexInputs = gen.create(GRAPH_INPUTS_ATTR, GRAPH_INPUTS_ATTR_SHORT);
-    gen.setArray(true);
-    gen.setHidden(false);
-    gen.setChannelBox(true);
-    gen.setKeyable(true);
-
-    gen.addNumericDataAccept(MFnNumericData::kLong);
-    gen.addNumericDataAccept(MFnNumericData::kBoolean);
-    gen.addNumericDataAccept(MFnNumericData::kDouble);
-    gen.addNumericDataAccept(MFnNumericData::kFloat);
-    gen.addDataAccept(MFnData::kString);
-    gen.addDataAccept(MFnData::kPlugin);
-    gen.addDataAccept(MFnData::kNurbsCurve);
-    gen.addDataAccept(MFnData::kNurbsSurface);
-    gen.addDataAccept(MFnData::kMesh);
-    gen.addDataAccept(MFnData::kMatrix);
-
-    addAttribute(gexInputs);
-
-    gexOutputs = gen.create(GRAPH_OUTPUTS_ATTR, GRAPH_OUTPUTS_ATTR_SHORT);
-    gen.setArray(true);
-    gen.setHidden(false);
-    gen.setChannelBox(true);
-    gen.setKeyable(true);
-
-    gen.addNumericDataAccept(MFnNumericData::kLong);
-    gen.addNumericDataAccept(MFnNumericData::kBoolean);
-    gen.addNumericDataAccept(MFnNumericData::kDouble);
-    gen.addNumericDataAccept(MFnNumericData::kFloat);
-    gen.addDataAccept(MFnData::kString);
-    gen.addDataAccept(MFnData::kPlugin);
-    gen.addDataAccept(MFnData::kNurbsCurve);
-    gen.addDataAccept(MFnData::kNurbsSurface);
-    gen.addDataAccept(MFnData::kMesh);
-    gen.addDataAccept(MFnData::kMatrix);
-
-    addAttribute(gexOutputs);
-
-    gexInputsMatch = at.create(GRAPH_INPUTS_MATCH_ATTR, GRAPH_INPUTS_MATCH_ATTR_SHORT,
-                               GraphAttributesMatch::id);
-    at.setChannelBox(false);
-    at.setKeyable(false);
-    at.setHidden(true);
-    at.setConnectable(false);
-    addAttribute(gexInputsMatch);
-
-    gexOutputsMatch = at.create(GRAPH_OUTPUTS_MATCH_ATTR, GRAPH_OUTPUTS_MATCH_ATTR_SHORT,
-                                GraphAttributesMatch::id);
-    at.setChannelBox(false);
-    at.setKeyable(false);
-    at.setHidden(true);
-    at.setConnectable(false);
-    addAttribute(gexOutputsMatch);
-
-    attributeAffects(gexGraph, gexOutputs);
-    attributeAffects(gexInputs, gexOutputs);
+    GEX_NODE_INITIALIZE()
 
     return MS::kSuccess;
 }
@@ -691,16 +444,10 @@ MStatus GexMaya::GexNetworkNode::compute(const MPlug &plug, MDataBlock &dataBloc
 }
 
 
-
-
 // -------------------------------------------------
 // DEFORMER ----------------------------------------
 // -------------------------------------------------
-MObject GexMaya::GexDeformer::gexGraph;
-MObject GexMaya::GexDeformer::gexInputs;
-MObject GexMaya::GexDeformer::gexOutputs;
-MObject GexMaya::GexDeformer::gexInputsMatch;
-MObject GexMaya::GexDeformer::gexOutputsMatch;
+GEX_NODE_ATTRIBUTES_DEF(GexMaya::GexDeformer)
 
 
 GexMaya::GexDeformer::GexDeformer(): GexNode(this)
@@ -711,8 +458,9 @@ GexMaya::GexDeformer::GexDeformer(): GexNode(this)
 
 void GexMaya::GexDeformer::postConstructor()
 {
-    InitGraph(thisMObject(), gexGraph,
-              "Deformer/Graph", "Graph");
+    InitGraph(thisMObject(),
+              "Deformer/Graph",
+              "Graph");
 }
 
 
@@ -767,94 +515,17 @@ void* GexMaya::GexDeformer::create()
     return new GexDeformer();
 }
 
+
 MStatus GexMaya::GexDeformer::initialize()
 {
-    MStatus result;
-    MFnTypedAttribute at;
+    GEX_NODE_INITIALIZE()
 
-    gexGraph = at.create(GEX_GRAPH_ATTR, GEX_GRAPH_ATTR_SHORT, GraphData::id);
-    at.setChannelBox(false);
-    at.setKeyable(false);
-    at.setHidden(true);
+//    attributeAffects(gexInputs, outputGeom);
+    attributeAffects(gexInputName, outputGeom);
+    attributeAffects(gexInputValue, outputGeom);
+    attributeAffects(gexOutputName, outputGeom);
 
-    result = addAttribute(gexGraph);
-    CHECK_MSTATUS(result)
-
-    result = attributeAffects(gexGraph, outputGeom);
-    CHECK_MSTATUS(result)
-
-    MFnGenericAttribute gen;
-    gexInputs = gen.create(GRAPH_INPUTS_ATTR, GRAPH_INPUTS_ATTR_SHORT);
-    gen.setArray(true);
-    gen.setHidden(false);
-    gen.setChannelBox(true);
-    gen.setKeyable(true);
-    gen.setConnectable(true);
-    gen.setStorable(true);
-
-    gen.addNumericDataAccept(MFnNumericData::kLong);
-    gen.addNumericDataAccept(MFnNumericData::kBoolean);
-    gen.addNumericDataAccept(MFnNumericData::kDouble);
-    gen.addNumericDataAccept(MFnNumericData::kFloat);
-    gen.addDataAccept(MFnData::kString);
-    gen.addDataAccept(MFnData::kPlugin);
-    gen.addDataAccept(MFnData::kNurbsCurve);
-    gen.addDataAccept(MFnData::kNurbsSurface);
-    gen.addDataAccept(MFnData::kMesh);
-    gen.addDataAccept(MFnData::kMatrix);
-
-    result = addAttribute(gexInputs);
-    CHECK_MSTATUS(result)
-
-    result = attributeAffects(gexInputs, outputGeom);
-    CHECK_MSTATUS(result)
-
-    gexOutputs = gen.create(GRAPH_OUTPUTS_ATTR, GRAPH_OUTPUTS_ATTR_SHORT);
-    gen.setArray(true);
-    gen.setHidden(false);
-    gen.setChannelBox(false);
-    gen.setKeyable(false);
-    gen.setConnectable(false);
-    gen.setStorable(false);
-
-    gen.addNumericDataAccept(MFnNumericData::kLong);
-    gen.addNumericDataAccept(MFnNumericData::kBoolean);
-    gen.addNumericDataAccept(MFnNumericData::kDouble);
-    gen.addNumericDataAccept(MFnNumericData::kFloat);
-    gen.addDataAccept(MFnData::kString);
-    gen.addDataAccept(MFnData::kPlugin);
-    gen.addDataAccept(MFnData::kNurbsCurve);
-    gen.addDataAccept(MFnData::kNurbsSurface);
-    gen.addDataAccept(MFnData::kMesh);
-    gen.addDataAccept(MFnData::kMatrix);
-
-    result = addAttribute(gexOutputs);
-    CHECK_MSTATUS(result)
-
-    result = attributeAffects(gexInputs, gexOutputs);
-    CHECK_MSTATUS(result)
-
-    gexInputsMatch = at.create(GRAPH_INPUTS_MATCH_ATTR, GRAPH_INPUTS_MATCH_ATTR_SHORT,
-                               GraphAttributesMatch::id, MFnPluginData().create(GraphAttributesMatch::id));
-    at.setChannelBox(false);
-    at.setKeyable(false);
-    at.setHidden(false);
-//    at.setConnectable(false);
-
-    result = addAttribute(gexInputsMatch);
-    CHECK_MSTATUS(result)
-
-    gexOutputsMatch = at.create(GRAPH_OUTPUTS_MATCH_ATTR, GRAPH_OUTPUTS_MATCH_ATTR_SHORT,
-                                GraphAttributesMatch::id, MFnPluginData().create(GraphAttributesMatch::id));
-    at.setChannelBox(false);
-    at.setKeyable(false);
-    at.setHidden(false);
-//    at.setConnectable(false);
-
-    result = addAttribute(gexOutputsMatch);
-    CHECK_MSTATUS(result)
-
-    return result;
+    return MS::kSuccess;
 }
 
 
@@ -994,6 +665,9 @@ MStatus GexMaya::GexNetworkGraph::doIt(const MArgList &args)
                 callback = cgraph->RegisterAttributeCallback(
                         [gexnode](Gex::Attribute* at, const Gex::AttributeChange& c)
                         {
+                            if (at->Node() != gexnode->Graph())
+                                return;
+
                             if (c == Gex::AttributeChange::AttributeAdded)
                                 gexnode->AddCustomAttribute(at);
                             else if (c == Gex::AttributeChange::AttributeRemoved)
@@ -1177,14 +851,11 @@ MStatus initializePlugin(MObject obj)
                                  &GexMaya::GraphData::create);
     CHECK_MSTATUS(status)
 
-    status = plugin.registerData("Gex::AttributesMatch", GexMaya::GraphAttributesMatch::id,
-                                 &GexMaya::GraphAttributesMatch::create);
-    CHECK_MSTATUS(status)
-
     status = plugin.registerNode("GexNetwork",
                                  GexMaya::GexNetworkNode::id,
                                  &GexMaya::GexNetworkNode::creator,
-                                 &GexMaya::GexNetworkNode::initialize
+                                 &GexMaya::GexNetworkNode::initialize,
+                                 MPxNode::kDependNode
                                  );
 
     CHECK_MSTATUS(status)
