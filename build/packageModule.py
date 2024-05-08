@@ -53,9 +53,15 @@ class MayaPluginModule(object):
         filename = os.path.basename(source)
         destination_file = os.path.join(directory, filename)
         if os.path.exists(destination_file):
-            os.remove(destination_file)
+            if os.path.isdir(source):
+                shutil.rmtree(destination_file)
+            else:
+                os.remove(destination_file)
 
-        shutil.copyfile(source, destination_file)
+        if os.path.isdir(source):
+            shutil.copytree(source, destination_file)
+        else:
+            shutil.copyfile(source, destination_file)
 
     def add_to_icons_dir(self, path):
         self._add_to_dir(path, self.icons_dir)
