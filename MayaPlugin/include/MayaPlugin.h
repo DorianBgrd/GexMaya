@@ -29,45 +29,6 @@
 
 namespace GexMaya
 {
-    typedef std::shared_ptr<Gex::CompoundNode> GraphPtr;
-    typedef std::vector<std::pair<Gex::Attribute*, MObjectHandle>> AttrTuple;
-    typedef std::map<int, std::string> AttrMatch;
-
-    class GEX_MAYA GraphData: public MPxData
-    {
-        GraphPtr g;
-
-    public:
-        GraphData();
-
-        ~GraphData();
-
-        GraphPtr SharedPtr() const;
-
-        Gex::CompoundNode* Graph() const;
-
-        void SetGraph(Gex::CompoundNode* node);
-
-        static MTypeId id;
-
-        MTypeId typeId() const override;
-
-        MStatus readASCII(const MArgList &argList, unsigned int &endOfTheLastParsedElement) override;
-
-        MStatus readBinary(std::istream &in, unsigned int length) override;
-
-        MStatus writeASCII(std::ostream &out) override;
-
-        MStatus writeBinary(std::ostream &out) override;
-
-        void copy(const MPxData& src) override;
-
-        MString name() const override;
-
-        static void* create();
-    };
-
-
     struct GEX_MAYA GexNode
     {
     private:

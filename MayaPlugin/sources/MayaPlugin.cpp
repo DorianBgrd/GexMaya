@@ -4,35 +4,26 @@
 #include "maya/MQtUtil.h"
 #include "maya/MSelectionList.h"
 #include "maya/MFnPluginData.h"
-#include "maya/MNodeMessage.h"
 #include "maya/MArgList.h"
-#include "maya/MFileIO.h"
 #include "maya/MFnGenericAttribute.h"
-#include "maya/MFnCompoundAttribute.h"
-#include "maya/MFnTypedAttribute.h"
 
 #include "MayaPlugin/include/GraphView.h"
 #include "MayaPlugin/include/Nodes.h"
 #include "MayaPlugin/include/Types.h"
 
 #include "MayaPlugin/include/Plugin.h"
+#include "MayaPlugin/include/Data.h"
 
 #include "Gex/ui/include/PluginLoader.h"
 
 #define GEX_GRAPH_ATTR "gexGraph"
 #define GEX_GRAPH_ATTR_SHORT "gxgrh"
 
-#define GRAPH_INPUTS_ATTR "gexInputs"
-#define GRAPH_INPUTS_ATTR_SHORT "gxi"
-
 #define GRAPH_INPUTS_NAME_ATTR "gexInputName"
 #define GRAPH_INPUTS_NAME_ATTR_SHORT "gxin"
 
 #define GRAPH_INPUTS_VALUE_ATTR "gexInputValue"
 #define GRAPH_INPUTS_VALUE_ATTR_SHORT "gxiv"
-
-#define GRAPH_OUTPUTS_ATTR "gexOutputs"
-#define GRAPH_OUTPUTS_ATTR_SHORT "gxo"
 
 #define GRAPH_OUTPUTS_NAME_ATTR "gexOutputName"
 #define GRAPH_OUTPUTS_NAME_ATTR_SHORT "gxon"
@@ -42,104 +33,7 @@
 
 
 MTypeId GexMaya::GexNetworkNode::id = 0x7ffff;
-MTypeId GexMaya::GraphData::id = 0x7ffff + 8;
 MTypeId GexMaya::GexDeformer::id = 0x7ffff + 16;
-
-
-GexMaya::GraphData::GraphData(): MPxData()
-{
-    Gex::Node* n = Gex::NodeFactory::GetFactory()->CreateNode(
-            "CompoundNode", "Graph");
-
-    g.reset(Gex::CompoundNode::FromNode(n));
-}
-
-
-GexMaya::GraphData::~GraphData()
-{
-
-}
-
-
-GexMaya::GraphPtr GexMaya::GraphData::SharedPtr() const
-{
-    return g;
-}
-
-
-Gex::CompoundNode* GexMaya::GraphData::Graph() const
-{
-    return g.get();
-}
-
-
-void GexMaya::GraphData::SetGraph(Gex::CompoundNode* node)
-{
-    g.reset(node);
-}
-
-
-MTypeId GexMaya::GraphData::typeId() const
-{
-    return id;
-}
-
-
-MStatus GexMaya::GraphData::readASCII(const MArgList &argList, unsigned int &endOfTheLastParsedElement)
-{
-    MString str = argList.asString(endOfTheLastParsedElement++);
-
-    Gex::Feedback res;
-    Gex::Node* loaded = Gex::LoadGraphString(str.asUTF8(), &res);
-    if (!res)
-    {
-        MGlobal::displayError(res.message.c_str());
-        return MS::kFailure;
-    }
-
-    g.reset(Gex::CompoundNode::FromNode(loaded));
-    return MS::kSuccess;
-}
-
-
-MStatus GexMaya::GraphData::readBinary(std::istream &in, unsigned int length)
-{
-    return MS::kSuccess;
-}
-
-MStatus GexMaya::GraphData::writeASCII(std::ostream &out)
-{
-    std::string str;
-    Gex::ExportToString(g.get(), str, false);
-
-    out << quoted(str);
-    return MS::kSuccess;
-}
-
-MStatus GexMaya::GraphData::writeBinary(std::ostream &out)
-{
-    return writeASCII(out);
-}
-
-void GexMaya::GraphData::copy(const MPxData &src)
-{
-    if (src.typeId() == id)
-    {
-        const GraphData* gdata = static_cast<const GraphData*>(&src);
-        g = gdata->SharedPtr();
-    }
-}
-
-MString GexMaya::GraphData::name() const
-{
-    return "Gex::GraphData";
-}
-
-
-void* GexMaya::GraphData::create()
-{
-    return new GraphData();
-}
 
 
 // -------------------------------------------------
@@ -417,30 +311,49 @@ void* GexMaya::GexNetworkNode::creator()
 
 MStatus GexMaya::GexNetworkNode::compute(const MPlug &plug, MDataBlock &dataBlock)
 {
-    // Retrieve graph.
-    MPxData* data = dataBlock.inputValue(gexGraph).asPluginData();
-    if (data->typeId() != GraphData::id)
+    MGlobal::displayInfo("GexNetworkNode::compute() -> " + plug.name());
+
+    auto inputArray = dataBlock.inputArrayValue(gexInputValue);
+    inputArray.jumpToElement(0);
+
+    auto inputValue = inputArray.inputValue();
+    auto d = inputValue.asGenericDouble();
+    auto f = inputValue.asGenericFloat();
+    auto i = inputValue.asGenericInt();
+    auto b = inputValue.asGenericBool();
+
+    std::string dp = plug.name().asUTF8();
+
+    MObject dirtyAttr = plug.attribute();
+    if (dirtyAttr == gexInputValue || dirtyAttr == gexOutputValue)
     {
-        return MS::kFailure;
+        // Retrieve graph.
+        MPxData* data = dataBlock.inputValue(gexGraph).asPluginData();
+        if (data->typeId() != GraphData::id)
+        {
+            return MS::kFailure;
+        }
+
+        Gex::CompoundNode* graph = static_cast<GraphData*>(data)->Graph();
+
+        // Push maya data to graph inputs.
+        PushInputs(graph, dataBlock);
+
+        // Compute internal graph.
+        auto prof = GetProfiler();
+        bool result = graph->Run(prof);
+        if (!result)
+        {
+            MGlobal::displayError("Failed evaluating Gex graph.");
+            return MS::kFailure;
+        }
+
+        // Push out graph data to maya outputs.
+        PullOutputs(graph, dataBlock);
     }
 
-    Gex::CompoundNode* graph = static_cast<GraphData*>(data)->Graph();
 
-    // Push maya data to graph inputs.
-    PushInputs(graph, dataBlock);
-
-    // Compute internal graph.
-    auto prof = GetProfiler();
-    bool result = graph->Run(prof);
-    if (!result)
-    {
-        MGlobal::displayError("Failed evaluating Gex graph.");
-        return MS::kFailure;
-    }
-
-    // Push out graph data to maya outputs.
-    PullOutputs(graph, dataBlock);
-    return MS::kSuccess;
+    return dataBlock.setClean(plug);
 }
 
 

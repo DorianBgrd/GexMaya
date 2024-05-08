@@ -48,12 +48,12 @@ namespace GexMaya
 
         void ToAttribute(MDataHandle& maya, Gex::Attribute* attr) const override
         {
-            attr->Set(maya.asBool());
+            attr->Set(maya.asGenericBool());
         }
 
         void ToMayaAttribute(Gex::Attribute* attr, MDataHandle& maya) const override
         {
-            maya.setBool(attr->Get<bool>());
+            maya.setGenericBool(attr->Get<bool>(), true);
         }
     };
 
@@ -66,13 +66,13 @@ namespace GexMaya
 
         void ToAttribute(MDataHandle& maya, Gex::Attribute* attr) const override
         {
-            attr->Set(maya.asInt());
+            attr->Set(maya.asGenericInt());
         }
 
         void ToMayaAttribute(Gex::Attribute* attr, MDataHandle& maya) const override
         {
             Gex::Feedback success;
-            maya.setInt(attr->Get<int>(&success));
+            maya.setGenericInt(attr->Get<int>(&success), true);
             if (!success)
                 MGlobal::displayInfo(("ERROR -> " + success.message).c_str());
         }
@@ -87,14 +87,14 @@ namespace GexMaya
 
         void ToAttribute(MDataHandle& maya, Gex::Attribute* attr) const override
         {
-            attr->Set(maya.asFloat());
+            float v = maya.asGenericFloat();
+            attr->Set(maya.asGenericFloat());
         }
 
         void ToMayaAttribute(Gex::Attribute* attr, MDataHandle& maya) const override
         {
-            MGlobal::displayInfo(("Set value " + std::to_string(attr->Get<float>())
-                                  + " from " + attr->Name()).c_str());
-            maya.setFloat(attr->Get<float>());
+            double v = attr->Get<float>();
+            maya.setGenericFloat(attr->Get<float>(), true);
         }
     };
 
@@ -107,12 +107,14 @@ namespace GexMaya
 
         void ToAttribute(MDataHandle& maya, Gex::Attribute* attr) const override
         {
-            attr->Set(maya.asDouble());
+            double v = maya.asGenericDouble();
+            attr->Set(maya.asGenericDouble());
         }
 
         void ToMayaAttribute(Gex::Attribute* attr, MDataHandle& maya) const override
         {
-            maya.setDouble(attr->Get<double>());
+            double v = attr->Get<double>();
+            maya.setGenericDouble(attr->Get<double>(), true);
         }
     };
 

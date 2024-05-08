@@ -1,6 +1,9 @@
 #ifndef GEXMAYA_DEFS_H
 #define GEXMAYA_DEFS_H
 
+#include "maya/MStatus.h"
+#include "maya/MGlobal.h"
+
 
 #define GEX_GRAPH_ATTR "gexGraph"
 #define GEX_GRAPH_ATTR_SHORT "gxgrh"
@@ -73,7 +76,6 @@ gen.addNumericDataAccept(MFnNumericData::kBoolean); \
 gen.addNumericDataAccept(MFnNumericData::kDouble); \
 gen.addNumericDataAccept(MFnNumericData::kFloat); \
 gen.addDataAccept(MFnData::kString); \
-gen.addDataAccept(MFnData::kPlugin); \
 gen.addDataAccept(MFnData::kNurbsCurve); \
 gen.addDataAccept(MFnData::kNurbsSurface); \
 gen.addDataAccept(MFnData::kMesh); \
@@ -84,27 +86,29 @@ addAttribute(gexInputValue); \
 gexOutputName = typedAttr.create(GRAPH_OUTPUTS_NAME_ATTR, \
                                  GRAPH_OUTPUTS_NAME_ATTR_SHORT, \
                                  MFnData::kString);        \
-typedAttr.setConnectable(false); \
-typedAttr.setKeyable(false);  \
+typedAttr.setStorable(true);  \
 typedAttr.setArray(true);  \
 addAttribute(gexOutputName); \
 \
 gexOutputValue = gen.create(GRAPH_OUTPUTS_VALUE_ATTR, GRAPH_OUTPUTS_VALUE_ATTR_SHORT); \
-gen.setConnectable(false); \
+gen.setConnectable(true); \
 gen.setKeyable(false); \
+gen.setStorable(false); \
 gen.addNumericDataAccept(MFnNumericData::kLong); \
 gen.addNumericDataAccept(MFnNumericData::kBoolean); \
 gen.addNumericDataAccept(MFnNumericData::kDouble); \
 gen.addNumericDataAccept(MFnNumericData::kFloat); \
 gen.addDataAccept(MFnData::kString); \
-gen.addDataAccept(MFnData::kPlugin); \
 gen.addDataAccept(MFnData::kNurbsCurve); \
 gen.addDataAccept(MFnData::kNurbsSurface); \
 gen.addDataAccept(MFnData::kMesh); \
 gen.addDataAccept(MFnData::kMatrix); \
 gen.setArray(true); \
-addAttribute(gexOutputValue);
-
+addAttribute(gexOutputValue); \
+\
+attributeAffects(gexInputValue, gexOutputValue);\
+attributeAffects(gexInputName, gexOutputValue);\
+attributeAffects(gexOutputName, gexOutputValue);
 
 
 #endif //GEXMAYA_DEFS_H

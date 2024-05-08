@@ -18,6 +18,8 @@ add_library(
         sources/Plugin.cpp
         include/Types.h
         sources/Types.cpp
+        include/Data.h
+        sources/Data.cpp
 )
 
 
@@ -118,48 +120,3 @@ add_custom_command(
 )
 
 
-set(PACKAGED_ENV "{'GEX_RESOURCES_PATH':'resources'}")
-
-add_custom_command(
-        TARGET
-        GexMaya
-
-        POST_BUILD
-        COMMAND
-        python ${CMAKE_SOURCE_DIR}/build/packageModule.py
-
-        --name GexMaya
-
-        --libraries ${GEX_LIBRARY_DIRS}/Gex.dll
-        ${TSYS_LIBRARY_DIR}/Tsys.dll
-        ${GEX_UI_LIBRARY_DIRS}/Gex_ui.dll
-        ${QT_AWESOME_LIBRARY_DIR}/QtAwesome.dll
-
-        --plugins ${CMAKE_CURRENT_BINARY_DIR}/GexMaya.mll
-
-        --custom-dir ${CMAKE_CURRENT_SOURCE_DIR}/resources
-
-        --description GexMaya@0.0@Module@env=${PACKAGED_ENV}
-
-        ${CMAKE_BINARY_DIR}/Module
-)
-
-
-add_custom_command(
-        TARGET
-        GexMaya
-
-        POST_BUILD
-        COMMAND
-        python $ENV{BUILD_UTILS_DIR}/BuildUtils/dependencies.py
-        --depth 2
-        --search-directories ${GEX_LIBRARY_DIRS} ${TSYS_LIBRARY_DIR}
-        ${GEX_UI_LIBRARY_DIRS} ${QT_AWESOME_LIBRARY_DIR}
-        ${UI_TSYS_LIBRARY_DIR} ${UI_RES_LIBRARY_DIR}
-
-        --exclude-current
-
-        ${CMAKE_CURRENT_BINARY_DIR}/GexMaya.mll
-        ${CMAKE_BINARY_DIR}/Module/GexMaya/Module/libraries
-
-)
